@@ -14,6 +14,8 @@ case class MixerCheckStatus(grpcStatus: GrpcStatus) {
     case _: GrpcStatus.Ok => true
     case _ => false
   }
+
+  def reason: String = grpcStatus.message
 }
 
 class MixerClient(client: Mixer) {

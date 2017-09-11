@@ -19,6 +19,16 @@ class IngresssTrafficIdentifier[Req](
 ) extends IstioIdentifierBase[Req] {
 
   def identify(istioRequest: IstioRequest[Req], matchingPath: Future[Option[IngressPath]]): Future[RequestIdentification[Req]] = {
+    mixerClient.checkPreconditions(istioRequest).flatMap { status =>
+      if (status.success) {
+        identifyRequest(istioRequest, matchingPath)
+      } else {
+        Future.value(new UnidentifiedRequest(s"Request failed pre-condition check [${status.reason}]"))
+      }
+    }
+  }
+
+  private def identifyRequest(istioRequest: IstioRequest[Req], matchingPath: Future[Option[IngressPath]]): Future[RequestIdentification[Req]] = {
     matchingPath.flatMap {
       case None =>
         Future.value(new UnidentifiedRequest(s"no ingress rule matches ${istioRequest}"))
@@ -59,5 +69,4 @@ class IngresssTrafficIdentifier[Req](
         }
     }
   }
-
 }

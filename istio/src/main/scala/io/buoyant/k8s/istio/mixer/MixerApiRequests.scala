@@ -40,12 +40,11 @@ object MixerApiRequests {
     ReportRequest(attributeUpdate = Some(updated))
   }
 
-  def mkCheckRequest(istioREquest: IstioRequest[_]) = {
-    val TODO = Some(1L)
-    val dictionary = mkDictionary(istioREquest.requestedPath, istioREquest.targetService, istioREquest.sourceLabel, istioREquest.targetLabel)
-    val requestAttributes = Seq(istioREquest.requestedPath, istioREquest.sourceLabel, istioREquest.targetLabel, istioREquest.targetService)
+  def mkCheckRequest(istioRequest: IstioRequest[_]) = {
+    val dictionary = mkDictionary(istioRequest.requestedPath, istioRequest.targetService, istioRequest.sourceLabel, istioRequest.targetLabel)
+    val requestAttributes = Seq(istioRequest.requestedPath, istioRequest.sourceLabel, istioRequest.targetLabel, istioRequest.targetService)
     val attributesUpdate = mkAttributesUpdate(dictionary, requestAttributes)
-    CheckRequest(TODO, Some(attributesUpdate))
+    CheckRequest(Some(1L), Some(attributesUpdate))
   }
 
   private def mkDictionary(

@@ -5,7 +5,7 @@ import com.twitter.util.{Activity, Future, Time}
 import io.buoyant.grpc.runtime.GrpcStatus
 import io.buoyant.k8s.istio._
 import io.buoyant.k8s.istio.mixer.{MixerCheckStatus, MixerClient}
-import io.buoyant.router.RoutingFactory.IdentifiedRequest
+import io.buoyant.router.RoutingFactory.{IdentifiedRequest, UnidentifiedRequest}
 import io.buoyant.test.FunSuite
 import istio.proxy.v1.config.StringMatch.OneofMatchType
 import istio.proxy.v1.config._
@@ -89,13 +89,13 @@ class InternalTrafficIdentifierTest extends FunSuite {
 
     val identificationDefaultPort = await(internalTrafficIdentifier.identify(istioRequestForUnknownAuthorityOnDefaultPort)) match {
       case iR: IdentifiedRequest[StubRequest] => iR
-      case other => fail(s"Unexpected identificationDefaultPort: ${other}")
+      case other => fail(s"Unexpected identification: ${other}")
     }
     assert(identificationDefaultPort.dst.path == Path.read("/my/service/ext/external-server-svc/80"))
 
     val identificationSpecificPort = await(internalTrafficIdentifier.identify(istioRequestForUnknownAuthorityOnSpecificPort)) match {
       case iR: IdentifiedRequest[StubRequest] => iR
-      case other => fail(s"Unexpected identificationDefaultPort: ${other}")
+      case other => fail(s"Unexpected identification: ${other}")
     }
     assert(identificationSpecificPort.dst.path == Path.read("/my/service/ext/other-external-svc/666"))
   }
@@ -110,11 +110,11 @@ class InternalTrafficIdentifierTest extends FunSuite {
       new StubRequest()
     )
 
-    val identificationDefaultPort = await(internalTrafficIdentifier.identify(istioRequestForUnknownAuthorityOnDefaultPort)) match {
+    val identification = await(internalTrafficIdentifier.identify(istioRequestForUnknownAuthorityOnDefaultPort)) match {
       case iR: IdentifiedRequest[StubRequest] => iR
-      case other => fail(s"Unexpected identificationDefaultPort: ${other}")
+      case other => fail(s"Unexpected identification: ${other}")
     }
-    assert(identificationDefaultPort.dst.path == Path.read("/my/service/dest/known-svc-dst/::/known-svc-port"))
+    assert(identification.dst.path == Path.read("/my/service/dest/known-svc-dst/::/known-svc-port"))
   }
 
   test("rewrites requests with matching rule") {
@@ -128,11 +128,52 @@ class InternalTrafficIdentifierTest extends FunSuite {
       requestToBeRewritten
     )
 
-    val identificationDefaultPort = await(internalTrafficIdentifier.identify(istioRequestWithMatchingRules)) match {
+    val identification = await(internalTrafficIdentifier.identify(istioRequestWithMatchingRules)) match {
       case iR: IdentifiedRequest[StubRequest] => iR
-      case other => fail(s"Unexpected identificationDefaultPort: ${other}")
+      case other => fail(s"Unexpected identification: ${other}")
     }
     assert(requestToBeRewritten.host == "rewritten-to-svc")
-    assert(identificationDefaultPort.dst.path == Path.read("/my/service/route/known-rule/known-svc-port"))
+    assert(identification.dst.path == Path.read("/my/service/route/known-rule/known-svc-port"))
+  }
+
+  test("rejects request when mixer pre condition fails") {
+    val mixerErrorMessage = "expected error message"
+    val failingMixer = new MixerClient(null) {
+      override def report(
+        responseCode: ResponseCodeIstioAttribute,
+        requestPath: RequestPathIstioAttribute,
+        targetService: TargetServiceIstioAttribute,
+        sourceLabel: SourceLabelIstioAttribute,
+        targetLabel: TargetLabelsIstioAttribute,
+        duration: ResponseDurationIstioAttribute
+      ) = Future.Done
+
+      override def checkPreconditions(istioRequest: IstioRequest[_]) = {
+        Future.value(MixerCheckStatus(GrpcStatus.PermissionDenied(mixerErrorMessage)))
+      }
+    }
+
+    val internalTrafficIdentifierWithFailingMixer = new InternalTrafficIdentifier[StubRequest](
+      Path.read("/my/service"),
+      () => Dtab.empty,
+      routeCache,
+      clusters,
+      failingMixer,
+      stubProtocolHandler
+    )
+
+    val istioRequest = IstioRequest(
+      "/users/34",
+      "http",
+      "GET",
+      "known-svc",
+      (_) => None,
+      new StubRequest()
+    )
+
+    await(internalTrafficIdentifierWithFailingMixer.identify(istioRequest)) match {
+      case req: UnidentifiedRequest[StubRequest] => assert(req.reason == s"Request failed pre-condition check [${mixerErrorMessage}]")
+      case other => fail(s"Unexpected identification: ${other}")
+    }
   }
 }

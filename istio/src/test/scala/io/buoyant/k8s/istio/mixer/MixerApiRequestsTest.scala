@@ -12,6 +12,7 @@ import org.scalatest.FunSuite
 class MixerApiRequestsTest extends FunSuite {
 
   test("report - the key of every serialised attribute can be resolved using the dictionary") {
+
     val reportRequest = MixerApiRequests.mkReportRequest(
       ResponseCodeIstioAttribute(200),
       RequestPathIstioAttribute("requestPath"),
@@ -59,16 +60,18 @@ class MixerApiRequestsTest extends FunSuite {
     assert(duration.`nanos`.get == 1)
   }
 
-  test("check- the key of every serialised attribute can be resolved using the dictionary") {
-    val istioRequest = IstioRequest(
-      "/users/123",
+  test("check - the key of every serialised attribute can be resolved using the dictionary") {
+    val value = IstioRequest(
+      "/check-key-serialised/123",
       "http",
       "POST",
-      "clientsvc",
+      "check-key-serialised",
       (_) => None,
       Request()
     )
-    val checkRequest = MixerApiRequests.mkCheckRequest(istioRequest)
+    val checkRequest = MixerApiRequests.mkCheckRequest(value)
+    println(value.sourceLabel)
+    println(checkRequest.`attributeUpdate`.get.`dictionary`)
 
     assertCanResolveAllAttributesInDictionary(checkRequest.`attributeUpdate`)
   }
@@ -102,7 +105,6 @@ class MixerApiRequestsTest extends FunSuite {
       reverseDictionary("version").head -> "unknown"
     ))
     assert(allAttributesSent(reverseDictionary("target.labels").head).asInstanceOf[StringMap].`map` == expectedTargetLabels.`map`)
-    pending // ("all these unknbowns?")
   }
 
   private def assertCanResolveAllAttributesInDictionary(updateBody: Option[Attributes]) = {

@@ -6,7 +6,7 @@ import com.twitter.util.Future
 import io.buoyant.k8s.istio.Cluster
 import io.buoyant.k8s.istio.mixer.MixerClient
 import io.buoyant.k8s.istio.{ClusterCache, IstioRequest, RouteCache}
-import io.buoyant.router.RoutingFactory.{IdentifiedRequest, RequestIdentification}
+import io.buoyant.router.RoutingFactory.{IdentifiedRequest, RequestIdentification, UnidentifiedRequest}
 
 class InternalTrafficIdentifier[Req](
   pfx: Path,
@@ -18,6 +18,16 @@ class InternalTrafficIdentifier[Req](
 ) extends IstioIdentifierBase[Req] {
 
   def identify(istioRequest: IstioRequest[Req]): Future[RequestIdentification[Req]] = {
+    mixerClient.checkPreconditions(istioRequest).flatMap { status =>
+      if (status.success) {
+        identifyRequest(istioRequest)
+      } else {
+        Future.value(new UnidentifiedRequest(s"Request failed pre-condition check [${status.reason}]"))
+      }
+    }
+  }
+
+  private def identifyRequest(istioRequest: IstioRequest[Req]): Future[RequestIdentification[Req]] = {
     Future.join(clusterCache.get(istioRequest.authority), routeCache.getRules).flatMap {
       case (Some(Cluster(dest, port)), rules) =>
         //TODO: match on request scheme

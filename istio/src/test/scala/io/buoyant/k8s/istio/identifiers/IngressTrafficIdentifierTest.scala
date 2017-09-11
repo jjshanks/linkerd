@@ -169,4 +169,45 @@ class IngressTrafficIdentifierTest extends FunSuite {
     assert(requestToBeRewritten.host == "rewritten-to-svc")
     assert(identificationDefaultPort.dst.path == Path.read("/my/service/route/known-rule/known-svc-port"))
   }
+
+  test("rejects request when mixer pre condition fails") {
+    val mixerErrorMessage = "expected error message"
+    val failingMixer = new MixerClient(null) {
+      override def report(
+        responseCode: ResponseCodeIstioAttribute,
+        requestPath: RequestPathIstioAttribute,
+        targetService: TargetServiceIstioAttribute,
+        sourceLabel: SourceLabelIstioAttribute,
+        targetLabel: TargetLabelsIstioAttribute,
+        duration: ResponseDurationIstioAttribute
+      ) = Future.Done
+
+      override def checkPreconditions(istioRequest: IstioRequest[_]) = {
+        Future.value(MixerCheckStatus(GrpcStatus.PermissionDenied(mixerErrorMessage)))
+      }
+    }
+
+    val ingressTrafficIdentifierWithFailingMixer = new IngresssTrafficIdentifier[StubRequest](
+      Path.read("/my/service"),
+      () => Dtab.empty,
+      routeCache,
+      clusters,
+      failingMixer,
+      stubProtocolHandler
+    )
+
+    val istioRequest = IstioRequest(
+      "/users/34",
+      "http",
+      "GET",
+      "known-svc",
+      (_) => None,
+      new StubRequest()
+    )
+
+    await(ingressTrafficIdentifierWithFailingMixer.identify(istioRequest, Future.value(Some(ingressPathWithKnownVhost)))) match {
+      case req: UnidentifiedRequest[StubRequest] => assert(req.reason == s"Request failed pre-condition check [${mixerErrorMessage}]")
+      case other => fail(s"Unexpected identification: ${other}")
+    }
+  }
 }
